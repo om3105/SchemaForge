@@ -1,0 +1,1 @@
+{"name":"SchemaForge","description":"Developer tool to generate ER diagrams and SQL DDL from natural language descriptions using Gemini.","requestFramePermissions":[],"majorCapabilities":["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]}
