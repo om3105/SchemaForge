@@ -2,10 +2,13 @@ import React, { useEffect, useRef, useState } from 'react';
 import mermaid from 'mermaid';
 import { AlertCircle } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { stripCodeFences } from '../lib/forge';
 
-mermaid.initialize({ 
-  startOnLoad: false, 
+mermaid.initialize({
+  startOnLoad: false,
   theme: 'dark',
+  // Render at natural size and let the container scroll; scaling to fit makes text unreadable on phones
+  er: { useMaxWidth: false },
   themeVariables: {
     primaryColor: '#18181b', // zinc-900
     primaryTextColor: '#fafafa', // zinc-50
@@ -21,29 +24,35 @@ export default function MermaidDiagram({ chart, className }: { chart: string, cl
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (chart && containerRef.current) {
-      const id = `mermaid-chart-${Math.random().toString(36).substring(2, 9)}`;
-      setError(null);
-      
-      const renderChart = async () => {
-        try {
-          // Clean the chart code just in case LLM added markdown formatting
-          const cleanChart = chart.replace(/```mermaid/g, '').replace(/```/g, '').trim();
-          const { svg } = await mermaid.render(id, cleanChart);
-          if (containerRef.current) {
-             containerRef.current.innerHTML = svg;
-          }
-        } catch (err: any) {
-          console.error("Mermaid parsing error:", err);
-          setError(err.message || 'Failed to render diagram. The AI might have generated invalid Mermaid syntax.');
-          if (containerRef.current) {
-            containerRef.current.innerHTML = '';
-          }
+    if (!chart) return;
+
+    // Ignore results from a render that was superseded by a newer chart
+    let cancelled = false;
+    const id = `mermaid-chart-${Math.random().toString(36).substring(2, 9)}`;
+    setError(null);
+
+    const renderChart = async () => {
+      try {
+        const { svg } = await mermaid.render(id, stripCodeFences(chart));
+        if (!cancelled && containerRef.current) {
+          containerRef.current.innerHTML = svg;
         }
-      };
-      
-      renderChart();
-    }
+      } catch (err: any) {
+        console.error("Mermaid parsing error:", err);
+        // mermaid leaves an error element in the body when rendering fails
+        document.getElementById(`d${id}`)?.remove();
+        if (cancelled) return;
+        setError(err.message || 'Failed to render diagram. The AI might have generated invalid Mermaid syntax.');
+        if (containerRef.current) {
+          containerRef.current.innerHTML = '';
+        }
+      }
+    };
+
+    renderChart();
+    return () => {
+      cancelled = true;
+    };
   }, [chart]);
 
   if (!chart) {
@@ -56,18 +65,19 @@ export default function MermaidDiagram({ chart, className }: { chart: string, cl
   }
 
   return (
-    <div className={cn("w-full h-full overflow-auto flex items-center justify-center p-4", className)}>
-      {error ? (
-        <div className="text-red-400 border border-red-900/50 bg-red-950/20 p-4 rounded-md max-w-2xl font-mono text-sm flex flex-col items-start gap-3">
+    <div className={cn("w-full h-full overflow-auto flex p-4", className)}>
+      {error && (
+        <div className="text-red-400 border border-red-900/50 bg-red-950/20 p-4 rounded-md max-w-2xl m-auto font-mono text-sm flex flex-col items-start gap-3 break-words min-w-0">
           <div className="flex items-center gap-2 font-semibold">
             <AlertCircle className="w-5 h-5" />
             Diagram Generation Error
           </div>
           <p>{error}</p>
+          <p className="text-zinc-400">The SQL Export tab may still contain usable DDL. Try forging again for a new diagram.</p>
         </div>
-      ) : (
-        <div ref={containerRef} className="mermaid-container w-full flex justify-center" />
       )}
+      {/* Always mounted so a later chart can render after an error */}
+      <div ref={containerRef} className={cn("mermaid-container m-auto shrink-0", error && "hidden")} />
     </div>
   );
 }
