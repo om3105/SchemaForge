@@ -31,3 +31,7 @@ test('does not retry other errors', async () => {
   await assert.rejects(withRetry(async () => { calls++; throw new Error('API_KEY_INVALID'); }, [0, 0]));
   assert.equal(calls, 1);
 });
+
+test('does not treat timeouts as overload', () => {
+  assert.equal(isOverloaded(new Error('Request timed out')), false);
+});
