@@ -16,6 +16,9 @@ function publicErrorMessage(error: any): { status: number; message: string } {
   if (/quota|RESOURCE_EXHAUSTED|429/i.test(message)) {
     return { status: 429, message: "Gemini quota exceeded. Please try again later or use your own API key." };
   }
+  if (/timed out|timeout/i.test(message)) {
+    return { status: 504, message: "Gemini took too long to respond. Please try again." };
+  }
   if (isOverloaded(error)) {
     return { status: 503, message: "Gemini is busy right now. Please try again in a minute." };
   }
@@ -32,6 +35,8 @@ export function isOverloaded(error: any): boolean {
 }
 
 const RETRY_DELAYS_MS = [1500, 3000];
+// Without a limit a stuck Gemini call leaves the visitor on a spinner forever
+const GEMINI_TIMEOUT_MS = 45_000;
 
 export async function withRetry<T>(fn: () => Promise<T>, delaysMs: number[] = RETRY_DELAYS_MS): Promise<T> {
   for (let attempt = 0; ; attempt++) {
@@ -63,7 +68,7 @@ export async function handleForge(reqBody: any): Promise<ForgeApiResult> {
       return { status: 400, body: { error: "API key is required" } };
     }
 
-    const ai = new GoogleGenAI({ apiKey: keyToUse });
+    const ai = new GoogleGenAI({ apiKey: keyToUse, httpOptions: { timeout: GEMINI_TIMEOUT_MS } });
 
     const systemInstruction = `You are a Principal Database Administrator. Analyze the application concept and design a normalized relational database schema.
       Return a JSON object with two fields:
