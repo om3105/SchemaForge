@@ -11,6 +11,15 @@ async function startServer() {
 
   // Render and similar hosts sit behind a proxy; needed for per-client rate limiting
   app.set("trust proxy", 1);
+
+  // The app moved to Vercel; send visitors of the old Render URL there
+  app.use((req, res, next) => {
+    if (req.hostname.endsWith(".onrender.com")) {
+      return res.redirect(302, `https://schemaforge-om.vercel.app${req.originalUrl}`);
+    }
+    next();
+  });
+
   app.use(express.json({ limit: "16kb" }));
 
   const forgeLimiter = rateLimit({
