@@ -16,10 +16,32 @@ function publicErrorMessage(error: any): { status: number; message: string } {
   if (/quota|RESOURCE_EXHAUSTED|429/i.test(message)) {
     return { status: 429, message: "Gemini quota exceeded. Please try again later or use your own API key." };
   }
+  if (isOverloaded(error)) {
+    return { status: 503, message: "Gemini is busy right now. Please try again in a minute." };
+  }
   if (/unexpected format/i.test(message)) {
     return { status: 502, message };
   }
   return { status: 500, message: "Failed to forge schema. Please try again." };
+}
+
+// Gemini returns 503 / UNAVAILABLE during demand spikes; these usually clear within seconds
+export function isOverloaded(error: any): boolean {
+  const message = String(error?.message || "");
+  return error?.status === 503 || /high demand|overloaded|UNAVAILABLE|503/i.test(message);
+}
+
+const RETRY_DELAYS_MS = [1500, 3000];
+
+export async function withRetry<T>(fn: () => Promise<T>, delaysMs: number[] = RETRY_DELAYS_MS): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      if (attempt >= delaysMs.length || !isOverloaded(error)) throw error;
+      await new Promise((resolve) => setTimeout(resolve, delaysMs[attempt]));
+    }
+  }
 }
 
 export async function handleForge(reqBody: any): Promise<ForgeApiResult> {
@@ -49,7 +71,7 @@ export async function handleForge(reqBody: any): Promise<ForgeApiResult> {
       2. "sql": syntax-clean ${dialect} DDL (CREATE TABLE statements with primary keys, foreign keys, constraints and useful indexes).
       Do not wrap either field in markdown code fences and do not include explanatory text.`;
 
-    const response = await ai.models.generateContent({
+    const response = await withRetry(() => ai.models.generateContent({
       model: process.env.GEMINI_MODEL || "gemini-3.6-flash",
       contents: prompt,
       config: {
@@ -66,7 +88,7 @@ export async function handleForge(reqBody: any): Promise<ForgeApiResult> {
           propertyOrdering: ["mermaid", "sql"],
         },
       },
-    });
+    }));
 
     return { status: 200, body: parseForgeResponse(response.text || "") };
   } catch (error: any) {
